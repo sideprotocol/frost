@@ -54,6 +54,11 @@ where
         Self::nonce_generate_from_random_bytes(secret, random_bytes)
     }
 
+    /// Negate `Nonce`.
+    pub fn negate(&mut self) {
+        self.0 = <<C::Group as Group>::Field>::negate(&self.0);
+    }
+
     fn from_scalar(scalar: <<<C as Ciphersuite>::Group as Group>::Field as Field>::Scalar) -> Self {
         Self(SerializableScalar(scalar))
     }
@@ -252,6 +257,22 @@ where
             binding,
             commitments,
         }
+    }
+
+    /// Gets the hiding [`Nonce`]
+    pub fn hiding(&self) -> &Nonce<C> {
+        &self.hiding
+    }
+
+    /// Gets the binding [`Nonce`]
+    pub fn binding(&self) -> &Nonce<C> {
+        &self.binding
+    }
+
+    /// Negate `SigningShare`.
+    pub fn negate_nonces(&mut self) {
+        self.binding.negate();
+        self.hiding.negate();
     }
 }
 

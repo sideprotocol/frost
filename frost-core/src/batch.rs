@@ -34,7 +34,7 @@ where
         M: AsRef<[u8]>,
     {
         // Compute c now to avoid dependency on the msg lifetime.
-        let c = crate::challenge(&sig.R, &vk, msg.as_ref())?;
+        let c = <C>::challenge(&sig.R, &vk, msg.as_ref());
 
         Ok(Self { vk, sig, c })
     }
@@ -120,7 +120,12 @@ where
 
         for item in self.signatures.iter() {
             let z = item.sig.z;
-            let R = item.sig.R;
+            let mut R = item.sig.R;
+            let mut vk = item.vk.element;
+            if <C>::is_need_tweaking() {
+                R = <C>::tweaked_R(&item.sig.R);
+                vk = <C>::tweaked_public_key(&item.vk.element);
+            }
 
             let blind = <<C::Group as Group>::Field>::random(&mut rng);
 
@@ -131,7 +136,7 @@ where
             Rs.push(R);
 
             VK_coeffs.push(<<C::Group as Group>::Field>::zero() + (blind * item.c.0));
-            VKs.push(item.vk.to_element());
+            VKs.push(vk);
         }
 
         let scalars = core::iter::once(&P_coeff_acc)

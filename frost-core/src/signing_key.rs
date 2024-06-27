@@ -6,8 +6,7 @@ use rand_core::{CryptoRng, RngCore};
 
 use crate::{
     random_nonzero, serialization::SerializableScalar, Ciphersuite, Error, Field, Group, Scalar,
-    Signature, VerifyingKey,
-};
+    Signature, VerifyingKey, Challenge};
 
 /// A signing key for a Schnorr signature on a FROST [`Ciphersuite::Group`].
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -30,8 +29,17 @@ where
     }
 
     /// Deserialize from bytes
-    pub fn deserialize(bytes: &[u8]) -> Result<SigningKey<C>, Error<C>> {
-        Self::from_scalar(SerializableScalar::deserialize(bytes)?.0)
+    pub fn deserialize(
+        bytes: <<C::Group as Group>::Field as Field>::Serialization,
+    ) -> Result<SigningKey<C>, Error<C>> {
+        let scalar =
+            <<C::Group as Group>::Field as Field>::deserialize(&bytes).map_err(Error::from)?;
+
+        if scalar == <<C::Group as Group>::Field as Field>::zero() {
+            return Err(Error::MalformedSigningKey);
+        }
+
+        Ok(Self { scalar })
     }
 
     /// Serialize `SigningKey` to bytes
@@ -41,14 +49,21 @@ where
 
     /// Create a signature `msg` using this `SigningKey`.
     pub fn sign<R: RngCore + CryptoRng>(&self, mut rng: R, msg: &[u8]) -> Signature<C> {
-        let k = random_nonzero::<C, R>(&mut rng);
-
+        let public = VerifyingKey::<C>::from(*self);
+        let mut secret = self.scalar;
+        if <C>::is_need_tweaking() {
+            secret = <C>::tweaked_secret_key(secret, &public.element);
+        }
+        let mut k = random_nonzero::<C, R>(&mut rng);
         let R = <C::Group>::generator() * k;
+        if <C>::is_need_tweaking() {
+            k = <C>::tweaked_nonce(k, &R);
+        }
 
         // Generate Schnorr challenge
-        let c = crate::challenge::<C>(&R, &VerifyingKey::<C>::from(*self), msg).expect("should not return error since that happens only if one of the inputs is the identity. R is not since k is nonzero. The verifying_key is not because signing keys are not allowed to be zero.");
+        let c: Challenge<C> = <C>::challenge(&R, &public, msg);
 
-        let z = k + (c.0 * self.scalar);
+        let z = k + (c.0 * secret);
 
         Signature { R, z }
     }

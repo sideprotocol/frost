@@ -1,4 +1,5 @@
 use core::fmt::{self, Debug};
+use derive_getters::Getters;
 
 use alloc::{string::ToString, vec::Vec};
 
@@ -8,7 +9,7 @@ use hex::FromHex;
 use crate::{serialization::SerializableElement, Challenge, Ciphersuite, Error, Group, Signature};
 
 /// A valid verifying key for Schnorr signatures over a FROST [`Ciphersuite::Group`].
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Getters)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(bound = "C: Ciphersuite"))]
 #[cfg_attr(feature = "serde", serde(transparent))]
@@ -39,14 +40,24 @@ where
         self.element.0
     }
 
+    /// Check if VerifyingKey is odd
+    pub fn y_is_odd(&self) -> bool {
+        <C::Group as Group>::y_is_odd(&self.element)
+    }
+
+
     /// Deserialize from bytes
-    pub fn deserialize(bytes: &[u8]) -> Result<VerifyingKey<C>, Error<C>> {
-        Ok(Self::new(SerializableElement::deserialize(bytes)?.0))
+    pub fn deserialize(
+        bytes: <C::Group as Group>::Serialization,
+    ) -> Result<VerifyingKey<C>, Error<C>> {
+        <C::Group>::deserialize(&bytes)
+            .map(|element| VerifyingKey { element })
+            .map_err(|e| e.into())
     }
 
     /// Serialize `VerifyingKey` to bytes
-    pub fn serialize(&self) -> Result<Vec<u8>, Error<C>> {
-        self.element.serialize()
+    pub fn serialize(&self) -> <C::Group as Group>::Serialization {
+        <C::Group>::serialize(&self.element)
     }
 
     /// Verify a purported `signature` with a pre-hashed [`Challenge`] made by this verification
@@ -60,9 +71,15 @@ where
         //                 h * ( z * B - c * A - R) == 0
         //
         // where h is the cofactor
+        let mut R = signature.R;
+        let mut vk = self.element;
+        if <C>::is_need_tweaking() {
+            R = <C>::tweaked_R(&signature.R);
+            vk = <C>::tweaked_public_key(&self.element);
+        }
         let zB = C::Group::generator() * signature.z;
-        let cA = self.element.0 * challenge.0;
-        let check = (zB - cA - signature.R) * C::Group::cofactor();
+        let cA = vk * challenge.0;
+        let check = (zB - cA - R) * C::Group::cofactor();
 
         if check == C::Group::identity() {
             Ok(())
