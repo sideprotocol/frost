@@ -36,7 +36,7 @@ use rand_core::{CryptoRng, RngCore};
 
 use crate::{
     Challenge, Ciphersuite, Element, Error, Field, Group, Header, Identifier, Scalar, Signature,
-    SigningKey, VerifyingKey,
+    SigningKey,
 };
 
 use super::{
@@ -289,6 +289,7 @@ pub fn part1<C: Ciphersuite, R: RngCore + CryptoRng>(
     // > Every participant P_i computes a public commitment
     // > C⃗_i = 〈φ_{i0}, ..., φ_{i(t−1)}〉, where φ_{ij} = g^{a_{ij}}, 0 ≤ j ≤ t − 1
     let coefficients = generate_coefficients::<C, R>(min_signers as usize - 1, &mut rng);
+
     let (coefficients, commitment) =
         generate_secret_polynomial(&secret, max_signers, min_signers, coefficients)?;
     let proof_of_knowledge =
@@ -313,7 +314,7 @@ pub fn part1<C: Ciphersuite, R: RngCore + CryptoRng>(
 /// Generates the challenge for the proof of knowledge to a secret for the DKG.
 fn challenge<C>(
     identifier: Identifier<C>,
-    verifying_key: &VerifyingKey<C>,
+    verifying_key: &Element<C>,
     R: &Element<C>,
 ) -> Option<Challenge<C>>
 where
@@ -322,7 +323,7 @@ where
     let mut preimage = vec![];
 
     preimage.extend_from_slice(identifier.serialize().as_ref());
-    preimage.extend_from_slice(<C::Group>::serialize(&verifying_key.element).as_ref());
+    preimage.extend_from_slice(<C::Group>::serialize(&verifying_key).as_ref());
     preimage.extend_from_slice(<C::Group>::serialize(R).as_ref());
 
     Some(Challenge(C::HDKG(&preimage[..])?))
@@ -343,14 +344,23 @@ pub(crate) fn compute_proof_of_knowledge<C: Ciphersuite, R: RngCore + CryptoRng>
     // > a_{i0} by calculating σ_i = (R_i, μ_i), such that k ← Z_q, R_i = g^k,
     // > c_i = H(i, Φ, g^{a_{i0}} , R_i), μ_i = k + a_{i0} · c_i, with Φ being
     // > a context string to prevent replay attacks.
-    let k = <<C::Group as Group>::Field>::random(&mut rng);
-    let R_i = <C::Group>::generator() * k;
-    let c_i = challenge::<C>(identifier, &commitment.verifying_key()?, &R_i)
-        .ok_or(Error::DKGNotSupported)?;
+    let mut k = <<C::Group as Group>::Field>::random(&mut rng);
+    let mut R_i = <C::Group>::generator() * k;
+    k = <C>::effective_nonce_secret(k, &R_i);
+    R_i = <C>::effective_nonce_element(R_i);
+
+    let verifying_key = commitment.verifying_key()?;
+    let sig_params = Default::default();
+
+    let phi_ell0 = <C>::effective_pubkey_element(&verifying_key, &sig_params);
+
+    let c_i = challenge::<C>(identifier, &phi_ell0, &R_i).ok_or(Error::DKGNotSupported)?;
     let a_i0 = *coefficients
-        .get(0)
+        .first()
         .expect("coefficients must have at least one element");
-    let mu_i = k + a_i0 * c_i.0;
+    let a_i0_effective = <C>::effective_secret_key(a_i0, &verifying_key, &sig_params);
+
+    let mu_i = k + a_i0_effective * c_i.0;
     Ok(Signature { R: R_i, z: mu_i })
 }
 
@@ -370,9 +380,12 @@ pub(crate) fn verify_proof_of_knowledge<C: Ciphersuite>(
     let ell = identifier;
     let R_ell = proof_of_knowledge.R;
     let mu_ell = proof_of_knowledge.z;
-    let phi_ell0 = commitment.verifying_key()?;
+
+    let verifying_key = commitment.verifying_key()?;
+    let phi_ell0 = <C>::effective_pubkey_element(&verifying_key, &Default::default());
     let c_ell = challenge::<C>(ell, &phi_ell0, &R_ell).ok_or(Error::DKGNotSupported)?;
-    if R_ell != <C::Group>::generator() * mu_ell - phi_ell0.element * c_ell.0 {
+
+    if R_ell != <C::Group>::generator() * mu_ell - phi_ell0 * c_ell.0 {
         return Err(Error::InvalidProofOfKnowledge { culprit: ell });
     }
     Ok(())
@@ -403,6 +416,12 @@ pub fn part2<C: Ciphersuite>(
 > {
     if round1_packages.len() != (secret_package.max_signers - 1) as usize {
         return Err(Error::IncorrectNumberOfPackages);
+    }
+
+    for package in round1_packages.values() {
+        if package.commitment.0.len() != secret_package.min_signers as usize {
+            return Err(Error::IncorrectNumberOfCommitments);
+        }
     }
 
     let mut round2_packages = BTreeMap::new();
@@ -517,6 +536,7 @@ pub fn part3<C: Ciphersuite>(
 
     signing_share = signing_share + round2_secret_package.secret_share;
     let signing_share = SigningShare(signing_share);
+
     // Round 2, Step 4
     //
     // > Each P_i calculates their public verification share Y_i = g^{s_i}.

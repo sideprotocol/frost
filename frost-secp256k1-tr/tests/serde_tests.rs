@@ -112,7 +112,9 @@ fn check_signing_package_serialization() {
           "binding": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
         }
       },
-      "message": "68656c6c6f20776f726c64"
+      "sig_target": {
+        "message": "68656c6c6f20776f726c64"
+      }
     }"#;
     let decoded_signing_package: SigningPackage = serde_json::from_str(json).unwrap();
     assert!(signing_package == decoded_signing_package);
@@ -133,7 +135,9 @@ fn check_signing_package_serialization() {
           "binding": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
         }
       },
-      "message": "68656c6c6f20776f726c64"
+      "sig_target": {
+        "message": "68656c6c6f20776f726c64"
+      }
     }"#;
     assert!(serde_json::from_str::<SigningPackage>(invalid_json).is_err());
 
@@ -153,7 +157,9 @@ fn check_signing_package_serialization() {
           "binding": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
         }
       },
-      "message": "68656c6c6f20776f726c64"
+      "sig_target": {
+        "message": "68656c6c6f20776f726c64"
+      }
     }"#;
     assert!(serde_json::from_str::<SigningPackage>(invalid_json).is_err());
 
@@ -172,7 +178,9 @@ fn check_signing_package_serialization() {
           "binding": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
         }
       },
-      "message": "68656c6c6f20776f726c64"
+      "sig_target": {
+        "message": "68656c6c6f20776f726c64"
+      }
     }"#;
     assert!(serde_json::from_str::<SigningPackage>(invalid_json).is_err());
 
@@ -192,7 +200,9 @@ fn check_signing_package_serialization() {
           "binding": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
         }
       },
-      "message": "68656c6c6f20776f726c64",
+      "sig_target": {
+        "message": "68656c6c6f20776f726c64"
+      },
       "extra": 1
     }
     "#;
@@ -529,7 +539,7 @@ fn check_round1_package_serialization() {
         "commitment": [
           "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
         ],
-        "proof_of_knowledge": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9d1c9e899ca306ad27fe1945de0242b81"
+        "proof_of_knowledge": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9d1c9e899ca306ad27fe1945de0242b81"
       }"#;
     let decoded_round1_package: round1::Package = serde_json::from_str(json).unwrap();
     assert!(round1_package == decoded_round1_package);
@@ -546,7 +556,7 @@ fn check_round1_package_serialization() {
         "commitment": [
           "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
         ],
-        "foo": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9d1c9e899ca306ad27fe1945de0242b81"
+        "foo": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9d1c9e899ca306ad27fe1945de0242b81"
       }"#;
     assert!(serde_json::from_str::<round1::Package>(invalid_json).is_err());
 
@@ -571,7 +581,7 @@ fn check_round1_package_serialization() {
         "commitment": [
           "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
         ],
-        "proof_of_knowledge": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9d1c9e899ca306ad27fe1945de0242b81",
+        "proof_of_knowledge": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9d1c9e899ca306ad27fe1945de0242b81",
         "extra": 1
       }"#;
     assert!(serde_json::from_str::<round1::Package>(invalid_json).is_err());

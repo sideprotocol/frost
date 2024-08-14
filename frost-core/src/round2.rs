@@ -83,6 +83,7 @@ where
     /// [`verify_signature_share`]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#name-signature-share-verificatio
     #[cfg_attr(feature = "internals", visibility::make(pub))]
     #[cfg_attr(docsrs, doc(cfg(feature = "internals")))]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn verify(
         &self,
         identifier: Identifier<C>,
@@ -92,19 +93,12 @@ where
         challenge: &Challenge<C>,
         group_commitment: &frost::GroupCommitment<C>,
         verifying_key: &frost::VerifyingKey<C>,
+        sig_params: &C::SigningParameters,
     ) -> Result<(), Error<C>> {
-        let mut commitment_share = group_commitment_share.0;
-        let mut vsh = verifying_share.0;
-        if <C>::is_need_tweaking() {
-            commitment_share = <C>::tweaked_group_commitment_share(
-                &group_commitment_share.0,
-                &group_commitment.0
-            );
-            vsh = <C>::tweaked_verifying_share(
-                &verifying_share.0,
-                &verifying_key.element
-            );
-        }
+        let commitment_share =
+            <C>::effective_commitment_share(group_commitment_share.clone(), &group_commitment);
+        let vsh = <C>::effective_verifying_share(&verifying_share, &verifying_key, &sig_params);
+
         if (<C::Group>::generator() * self.share)
             != (commitment_share + (vsh * challenge.0 * lambda_i))
         {
@@ -229,30 +223,19 @@ pub fn sign<C: Ciphersuite>(
     let challenge = <C>::challenge(
         &group_commitment.0,
         &key_package.verifying_key,
-        signing_package.message.as_slice(),
+        &signing_package.sig_target,
     );
 
     // Compute the Schnorr signature share.
-    if <C>::is_need_tweaking() {
-        let signature_share = <C>::compute_tweaked_signature_share(
-            signer_nonces,
-            binding_factor,
-            group_commitment,
-            lambda_i,
-            key_package,
-            challenge,
-        );
+    let signature_share = <C>::compute_signature_share(
+        signer_nonces,
+        binding_factor,
+        group_commitment,
+        lambda_i,
+        key_package,
+        challenge,
+        &signing_package.sig_target.sig_params,
+    );
 
-        Ok(signature_share)
-    } else {
-        let signature_share = compute_signature_share(
-            signer_nonces,
-            binding_factor,
-            lambda_i,
-            key_package,
-            challenge,
-        );
-
-        Ok(signature_share)
-    }
-}
+    Ok(signature_share)
+} 

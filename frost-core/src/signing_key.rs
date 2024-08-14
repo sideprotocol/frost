@@ -2,7 +2,10 @@
 
 use rand_core::{CryptoRng, RngCore};
 
-use crate::{random_nonzero, Ciphersuite, Error, Field, Group, Scalar, Signature, VerifyingKey, Challenge};
+use crate::{
+    random_nonzero, Challenge, Ciphersuite, Error, Field, Group, Scalar, Signature, SigningTarget,
+    VerifyingKey,
+};
 
 /// A signing key for a Schnorr signature on a FROST [`Ciphersuite::Group`].
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -43,29 +46,29 @@ where
         <<C::Group as Group>::Field as Field>::serialize(&self.scalar)
     }
 
-    /// Create a signature `msg` using this `SigningKey`.
-    pub fn sign<R: RngCore + CryptoRng>(&self, mut rng: R, msg: &[u8]) -> Signature<C> {
+    /// Create a signature on the given `sig_target` using this `SigningKey`.
+    pub fn sign<R: RngCore + CryptoRng>(
+        &self,
+        mut rng: R,
+        sig_target: impl Into<SigningTarget<C>>,
+    ) -> Signature<C> {
+        let sig_target = sig_target.into();
+
         let public = VerifyingKey::<C>::from(*self);
-        let mut secret = self.scalar;
-        if <C>::is_need_tweaking() {
-            secret = <C>::tweaked_secret_key(secret, &public.element);
-        }
+        let secret = <C>::effective_secret_key(self.scalar, &public, &sig_target.sig_params);
+
         let mut k = random_nonzero::<C, R>(&mut rng);
-        let R = <C::Group>::generator() * k;
-        if <C>::is_need_tweaking() {
-            k = <C>::tweaked_nonce(k, &R);
-        }
+        let mut R = <C::Group>::generator() * k;
+        k = <C>::effective_nonce_secret(k, &R);
+        R = <C>::effective_nonce_element(R);
 
         // Generate Schnorr challenge
-        let c: Challenge<C> = <C>::challenge(&R, &public, msg);
+        let c: Challenge<C> = <C>::challenge(&R, &public, &sig_target);
 
-        let z = k + (c.0 * secret);
-
-        Signature { R, z }
+        <C>::single_sig_finalize(k, R, secret, &c, &public, &sig_target.sig_params)
     }
 
     /// Creates a SigningKey from a scalar.
-    #[cfg(feature = "internals")]
     pub fn from_scalar(
         scalar: <<<C as Ciphersuite>::Group as Group>::Field as Field>::Scalar,
     ) -> Self {
@@ -73,7 +76,6 @@ where
     }
 
     /// Return the underlying scalar.
-    #[cfg(feature = "internals")]
     pub fn to_scalar(self) -> <<<C as Ciphersuite>::Group as Group>::Field as Field>::Scalar {
         self.scalar
     }
