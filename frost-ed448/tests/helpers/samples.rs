@@ -2,14 +2,14 @@
 
 use std::collections::BTreeMap;
 
-use frost_core::{Ciphersuite, Element, Group, Scalar};
+use frost_core::{round1::Nonce, Ciphersuite, Element, Group, Scalar};
 use frost_ed448::{
     keys::{
         dkg::{round1, round2},
         KeyPackage, PublicKeyPackage, SecretShare, SigningShare, VerifiableSecretSharingCommitment,
         VerifyingShare,
     },
-    round1::{NonceCommitment, SigningCommitments},
+    round1::{NonceCommitment, SigningCommitments, SigningNonces},
     round2::SignatureShare,
     Field, Signature, SigningPackage, VerifyingKey,
 };
@@ -30,6 +30,16 @@ fn scalar1() -> Scalar<C> {
     // To return a fixed non-small number, get the inverse of 3
     <<C as Ciphersuite>::Group as Group>::Field::invert(&three)
         .expect("nonzero elements have inverses")
+}
+
+/// Generate a sample SigningCommitments.
+pub fn signing_nonces() -> SigningNonces {
+    let serialized_scalar1 = <<C as Ciphersuite>::Group as Group>::Field::serialize(&scalar1());
+    let serialized_scalar2 = <<C as Ciphersuite>::Group as Group>::Field::serialize(&scalar1());
+    let hiding_nonce = Nonce::deserialize(serialized_scalar1).unwrap();
+    let binding_nonce = Nonce::deserialize(serialized_scalar2).unwrap();
+
+    SigningNonces::from_nonces(hiding_nonce, binding_nonce)
 }
 
 /// Generate a sample SigningCommitments.
@@ -97,19 +107,12 @@ pub fn public_key_package() -> PublicKeyPackage {
 
 /// Generate a sample round1::Package.
 pub fn round1_package() -> round1::Package {
-    let serialized_scalar = <<C as Ciphersuite>::Group as Group>::Field::serialize(&scalar1());
+    let serialized_signature = Signature::new(element1(), scalar1()).serialize();
+    let signature = Signature::deserialize(serialized_signature).unwrap();
+
     let serialized_element = <C as Ciphersuite>::Group::serialize(&element1());
-    let serialized_signature = serialized_element
-        .as_ref()
-        .iter()
-        .chain(serialized_scalar.as_ref().iter())
-        .cloned()
-        .collect::<Vec<u8>>()
-        .try_into()
-        .unwrap();
     let vss_commitment =
         VerifiableSecretSharingCommitment::deserialize(vec![serialized_element]).unwrap();
-    let signature = Signature::deserialize(serialized_signature).unwrap();
 
     round1::Package::new(vss_commitment, signature)
 }

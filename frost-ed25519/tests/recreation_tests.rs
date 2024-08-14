@@ -6,7 +6,7 @@ use frost_ed25519::{
         dkg::{round1, round2},
         KeyPackage, PublicKeyPackage, SecretShare,
     },
-    round1::SigningCommitments,
+    round1::{SigningCommitments, SigningNonces},
     round2::SignatureShare,
     SigningPackage,
 };
@@ -14,6 +14,16 @@ use frost_ed25519::{
 mod helpers;
 
 use helpers::samples;
+
+/// Check if SigningNonces can be recreated.
+#[test]
+fn check_signing_nonces_recreation() {
+    let nonces = samples::signing_nonces();
+    let hiding = nonces.hiding();
+    let binding = nonces.binding();
+    let new_nonces = SigningNonces::from_nonces(*hiding, *binding);
+    assert!(nonces == new_nonces);
+}
 
 /// Check if SigningCommitments can be recreated.
 #[test]
@@ -31,9 +41,9 @@ fn check_signing_package_recreation() {
     let signing_package = samples::signing_package();
 
     let commitments = signing_package.signing_commitments();
-    let message = signing_package.message();
+    let sig_target = signing_package.sig_target();
 
-    let new_signing_package = SigningPackage::new(commitments.clone(), message);
+    let new_signing_package = SigningPackage::new(commitments.clone(), sig_target.clone());
     assert!(signing_package == new_signing_package);
 }
 

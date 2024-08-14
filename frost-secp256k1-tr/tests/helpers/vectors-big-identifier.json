@@ -1091,19 +1091,19 @@
     "outputs": [
       {
         "identifier": 129,
-        "sig_share": "f01e946f27156b55a714d8872a31c860a379e10e305a20bbd39e4f509b78a7ab"
+        "sig_share": "e0f12b2fe652921203e8653ca6eeecef1a3ff64e11ac8dbd3912a7ac50b212c5"
       },
       {
         "identifier": 256,
-        "sig_share": "f4ca85e6e1bf8bd0d16cb3bab9a9b223e97fdcff73ecc650706a4b54b4573368"
+        "sig_share": "6bf65426790fd1b730ac7873a7b8ea0ce37aebf3c137d7ffd9b30cc2df32bf40"
       },
       {
         "identifier": 257,
-        "sig_share": "0b9b540faed82f39a9cee154dc998297865f1b9096f89e87c5cd3163997b1165"
+        "sig_share": "46da290402d61ae2b6bb95ffcfbbd8ecd93b5059b7cf104514655dddfcc845b6"
       }
     ]
   },
   "final_output": {
-    "sig": "0354997f922511dba38d16973092a331f4039477bf4a2d77b438a317862795b267afb5d03fef0520d7b6ef541cbf9c252e51c11b989950ff64f750cb65ac9d1277"
+    "sig": "54997f922511dba38d16973092a331f4039477bf4a2d77b438a317862795b26793c1a85a62387eabeb5073b01e63afea1c4755b4db6ad5c66758b3c05c76d67a"
   }
 }

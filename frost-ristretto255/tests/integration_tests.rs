@@ -12,7 +12,10 @@ fn check_zero_key_fails() {
 fn check_sign_with_dkg() {
     let rng = thread_rng();
 
-    frost_core::tests::ciphersuite_generic::check_sign_with_dkg::<Ristretto255Sha512, _>(rng);
+    frost_core::tests::ciphersuite_generic::check_sign_with_dkg::<Ristretto255Sha512, _>(
+        rng,
+        b"message".into(),
+    );
 }
 
 #[test]
@@ -68,7 +71,10 @@ fn check_rts() {
 fn check_sign_with_dealer() {
     let rng = thread_rng();
 
-    frost_core::tests::ciphersuite_generic::check_sign_with_dealer::<Ristretto255Sha512, _>(rng);
+    frost_core::tests::ciphersuite_generic::check_sign_with_dealer::<Ristretto255Sha512, _>(
+        rng,
+        b"message".into(),
+    );
 }
 
 #[test]
@@ -170,11 +176,19 @@ lazy_static! {
     pub static ref VECTORS_BIG_IDENTIFIER: Value =
         serde_json::from_str(include_str!("../tests/helpers/vectors-big-identifier.json").trim())
             .expect("Test vector is valid JSON");
+    pub static ref VECTORS_DKG: Value =
+        serde_json::from_str(include_str!("../tests/helpers/vectors_dkg.json").trim())
+            .expect("Test vector is valid JSON");
 }
 
 #[test]
 fn check_sign_with_test_vectors() {
     frost_core::tests::vectors::check_sign_with_test_vectors::<Ristretto255Sha512>(&VECTORS);
+}
+
+#[test]
+fn check_sign_with_test_vectors_dkg() {
+    frost_core::tests::vectors_dkg::check_dkg_keygen::<Ristretto255Sha512>(&VECTORS_DKG);
 }
 
 #[test]
@@ -212,7 +226,7 @@ fn check_sign_with_dealer_and_identifiers() {
     frost_core::tests::ciphersuite_generic::check_sign_with_dealer_and_identifiers::<
         Ristretto255Sha512,
         _,
-    >(rng);
+    >(rng, b"message".into());
 }
 
 #[test]
