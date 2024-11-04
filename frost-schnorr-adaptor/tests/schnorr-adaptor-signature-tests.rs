@@ -44,7 +44,7 @@ fn check_adaptor_sign_with_dealer() {
 }
 
 #[test]
-fn check_adaptor_and_schnorr_sign_with_dealer_() {
+fn check_adaptor_sign_with_dealer_and_verify_adapted_signautre() {
     let mut rng = thread_rng();
 
     let msg = [1u8; 32];
