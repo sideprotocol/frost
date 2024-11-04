@@ -258,20 +258,20 @@ pub fn check_sign<C: Ciphersuite + PartialEq, R: RngCore + CryptoRng>(
         verifying_key: pubkey_package.verifying_key,
     };
 
-    // check_aggregate_errors(
-    //     signing_package.clone(),
-    //     signature_shares.clone(),
-    //     pubkey_package.clone(),
-    // );
+    check_aggregate_errors(
+        signing_package.clone(),
+        signature_shares.clone(),
+        pubkey_package.clone(),
+    );
 
     // Aggregate (also verifies the signature shares)
     let group_signature = frost::aggregate(&signing_package, &signature_shares, &pubkey_package)?;
 
     // Check that the threshold signature can be verified by the group public
     // key (the verification key).
-    // pubkey_package
-    //     .verifying_key
-    //     .verify(signing_target.clone(), &group_signature)?;
+    pubkey_package
+        .verifying_key
+        .verify(signing_target.clone(), &group_signature)?;
 
     // // Check that the effective verifying key can be verified against the raw message,
     // // without exposing the SigningParameters.
@@ -280,15 +280,15 @@ pub fn check_sign<C: Ciphersuite + PartialEq, R: RngCore + CryptoRng>(
     //     .effective_key(signing_target.sig_params())
     //     .verify(signing_target.message(), &group_signature)?;
 
-    // // Check that the threshold signature can be verified by the group public
-    // // key (the verification key) from KeyPackage.verifying_key
-    // for (participant_identifier, _) in nonces_map.clone() {
-    //     let key_package = key_packages.get(&participant_identifier).unwrap();
+    // Check that the threshold signature can be verified by the group public
+    // key (the verification key) from KeyPackage.verifying_key
+    for (participant_identifier, _) in nonces_map.clone() {
+        let key_package = key_packages.get(&participant_identifier).unwrap();
 
-    //     key_package
-    //         .verifying_key
-    //         .verify(signing_target.clone(), &group_signature)?;
-    // }
+        key_package
+            .verifying_key
+            .verify(signing_target.clone(), &group_signature)?;
+    }
 
     Ok((
         signing_target,
