@@ -13,6 +13,7 @@ use k256::{
         bigint::U256,
         group::prime::PrimeCurveAffine,
         hash2curve::{hash_to_field, ExpandMsgXmd},
+        ops::MulByGenerator,
         point::AffineCoordinates,
         sec1::{FromEncodedPoint, ToEncodedPoint},
         Field as FFField, PrimeField, ScalarPrimitive,
@@ -595,6 +596,23 @@ impl RandomizedCiphersuite for Secp256K1Sha256 {
             m,
         ))
     }
+}
+
+/// Adapt the adaptor signature with the given adaptor secret.
+pub fn adapt(signature: &Signature, adaptor_secret: &Scalar) -> Signature {
+    let R = signature.R();
+    let s = signature.z();
+
+    let adaptor_point = ProjectivePoint::mul_by_generator(adaptor_secret);
+    let adapted_R = R + &adaptor_point;
+
+    let adapted_s = if Secp256K1Group::y_is_odd(&adapted_R) {
+        s - adaptor_secret
+    } else {
+        s + adaptor_secret
+    };
+
+    Signature::new(adapted_R, adapted_s)
 }
 
 type S = Secp256K1Sha256;
