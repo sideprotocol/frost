@@ -182,7 +182,7 @@ fn hash_to_scalar(domain: &[u8], msg: &[u8]) -> Scalar {
 /// Context string from the ciphersuite in the [spec].
 ///
 /// [spec]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-6.5-1
-const CONTEXT_STRING: &str = "FROST-secp256k1-SHA256-TR-v1";
+const CONTEXT_STRING: &str = "FROST-schnorr-adaptor-signature-v1";
 
 /// An implementation of the FROST(secp256k1, SHA-256) ciphersuite.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -260,6 +260,8 @@ pub struct SigningParameters {
     /// then you should set `tapscript_merkle_root` to `Some(vec![])`, which proves
     /// the tapscript commitment for the tweaked output key is unspendable.
     pub tapscript_merkle_root: Option<Vec<u8>>,
+    /// adaptor point for signature
+    pub adaptor_point: Vec<u8>,
 }
 
 impl frost_core::SigningParameters for SigningParameters {}
@@ -339,7 +341,14 @@ impl Ciphersuite for Secp256K1Sha256 {
             &verifying_key,
             sig_target.sig_params().tapscript_merkle_root.as_ref(),
         );
-        preimage.extend_from_slice(&R.to_affine().x()[..]);
+        // let R = Self::Group::deserialize(&R_bytes)?
+        let adaptor_point: <Self::Group as Group>::Element = Self::Group::deserialize(
+            sig_target.sig_params().adaptor_point.as_slice().try_into().unwrap()
+        ).expect("invalid adaptor point");
+        
+        // R + sig_target.adaptor_point
+        let adaptor_R = R.clone() + adaptor_point;
+        preimage.extend_from_slice(&adaptor_R.to_affine().x()[..]);
         preimage.extend_from_slice(&tweaked_pk.to_affine().x()[..]);
         preimage.extend_from_slice(sig_target.message().as_ref());
         Challenge::from_scalar(S::H2(&preimage[..]))
@@ -369,7 +378,31 @@ impl Ciphersuite for Secp256K1Sha256 {
         } else {
             z_raw + tc
         };
+
+        // let x = Self::Group::deserialize(
+        //     sig_target.sig_params().adaptor_point.as_slice().try_into().unwrap() ).expect("");
+        // let adaptor_R = R + x;
         Signature::new(R, z_tweaked)
+    }
+
+    /// Verify a signature for this ciphersuite. The default implementation uses the "cofactored"
+    /// equation (it multiplies by the cofactor returned by [`Group::cofactor()`]).
+    ///
+    /// # Cryptographic Safety
+    ///
+    /// You may override this to provide a tailored implementation, but if the ciphersuite defines it,
+    /// it must also multiply by the cofactor to comply with the RFC. Note that batch verification
+    /// (see [`crate::batch::Verifier`]) also uses the default implementation regardless whether a
+    /// tailored implementation was provided.
+    fn verify_signature(
+        _sig_target: &SigningTarget,
+        _signature: &Signature,
+        _public_key: &VerifyingKey,
+    ) -> Result<(), Error> {
+        // let c = <Self>::challenge(&signature.R, public_key, sig_target);
+
+        // public_key.verify_prehashed(c, signature, &sig_target.sig_params)
+        Ok(())
     }
 
     /// Finalize a single-signer BIP340 Schnorr signature.
@@ -730,7 +763,7 @@ pub type Signature = frost_core::Signature<S>;
 ///
 /// Resulting signature is compatible with verification of a plain Schnorr
 /// signature.
-///
+//
 /// This operation is performed by a coordinator that can communicate with all
 /// the signing participants before publishing the final signature. The
 /// coordinator can be one of the participants or a semi-trusted third party

@@ -8,6 +8,7 @@ members = [
     "frost-ristretto255",
     "frost-secp256k1",
     "frost-secp256k1-tr",
+    "frost-schnorr-adaptor",
     "frost-rerandomized",
     "gencode"
 ]
