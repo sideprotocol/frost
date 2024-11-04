@@ -17,7 +17,7 @@ use k256::{
         sec1::{FromEncodedPoint, ToEncodedPoint},
         Field as FFField, PrimeField, ScalarPrimitive,
     },
-    AffinePoint, ProjectivePoint, Scalar,
+    AffinePoint, EncodedPoint, ProjectivePoint, Scalar
 };
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
@@ -260,11 +260,20 @@ pub struct SigningParameters {
     /// then you should set `tapscript_merkle_root` to `Some(vec![])`, which proves
     /// the tapscript commitment for the tweaked output key is unspendable.
     pub tapscript_merkle_root: Option<Vec<u8>>,
-    /// adaptor point for signature
+    
+    /// serialized adaptor point for adaptor signature
     pub adaptor_point: Vec<u8>,
 }
 
 impl frost_core::SigningParameters for SigningParameters {}
+
+impl SigningParameters {
+    /// convert the serialized adaptor point to ProjectivePoint
+    pub fn adaptor_point(&self) -> ProjectivePoint {
+        let encoded_adaptor_point = EncodedPoint::from_bytes(&self.adaptor_point).expect("Invalid adaptor point");
+        ProjectivePoint::from_encoded_point(&encoded_adaptor_point).expect("Invalid adaptor point")
+    }
+}
 
 impl Ciphersuite for Secp256K1Sha256 {
     const ID: &'static str = CONTEXT_STRING;
@@ -341,15 +350,11 @@ impl Ciphersuite for Secp256K1Sha256 {
             &verifying_key,
             sig_target.sig_params().tapscript_merkle_root.as_ref(),
         );
-        // let R = Self::Group::deserialize(&R_bytes)?
-        let adaptor_point: <Self::Group as Group>::Element = Self::Group::deserialize(
-            sig_target.sig_params().adaptor_point.as_slice().try_into().unwrap()
-        ).expect("invalid adaptor point");
         
-        // R + sig_target.adaptor_point
-        let adaptor_R = R.clone() + adaptor_point;
-        preimage.extend_from_slice(&adaptor_R.to_affine().x()[..]);
-        preimage.extend_from_slice(&tweaked_pk.to_affine().x()[..]);
+        let adapted_R = R + &sig_target.sig_params().adaptor_point();
+
+        preimage.extend_from_slice(&adapted_R.to_affine().x());
+        preimage.extend_from_slice(&tweaked_pk.to_affine().x());
         preimage.extend_from_slice(sig_target.message().as_ref());
         Challenge::from_scalar(S::H2(&preimage[..]))
     }
@@ -378,31 +383,37 @@ impl Ciphersuite for Secp256K1Sha256 {
         } else {
             z_raw + tc
         };
-
-        // let x = Self::Group::deserialize(
-        //     sig_target.sig_params().adaptor_point.as_slice().try_into().unwrap() ).expect("");
-        // let adaptor_R = R + x;
         Signature::new(R, z_tweaked)
     }
 
-    /// Verify a signature for this ciphersuite. The default implementation uses the "cofactored"
-    /// equation (it multiplies by the cofactor returned by [`Group::cofactor()`]).
-    ///
-    /// # Cryptographic Safety
-    ///
-    /// You may override this to provide a tailored implementation, but if the ciphersuite defines it,
-    /// it must also multiply by the cofactor to comply with the RFC. Note that batch verification
-    /// (see [`crate::batch::Verifier`]) also uses the default implementation regardless whether a
-    /// tailored implementation was provided.
+    /// Verify the aggregated adaptor signature
     fn verify_signature(
-        _sig_target: &SigningTarget,
-        _signature: &Signature,
-        _public_key: &VerifyingKey,
+        sig_target: &SigningTarget,
+        signature: &Signature,
+        public_key: &VerifyingKey,
     ) -> Result<(), Error> {
-        // let c = <Self>::challenge(&signature.R, public_key, sig_target);
+        let R = signature.R();
 
-        // public_key.verify_prehashed(c, signature, &sig_target.sig_params)
-        Ok(())
+        let c = Self::challenge(R, public_key, sig_target);
+
+        let adapted_R = R + &sig_target.sig_params().adaptor_point();
+        let effective_R = if Self::Group::y_is_odd(&adapted_R) {
+            -R
+        } else {
+            *R
+        };
+
+        let vk = Self::effective_pubkey_element(public_key, sig_target.sig_params());
+
+        let zB = Self::Group::generator() * signature.z();
+        let cA = vk * c.to_scalar();
+        let check = (zB - cA - effective_R) * Self::Group::cofactor();
+
+        if check == Self::Group::identity() {
+            Ok(())
+        } else {
+            Err(Error::InvalidSignature)
+        }
     }
 
     /// Finalize a single-signer BIP340 Schnorr signature.
@@ -466,7 +477,7 @@ impl Ciphersuite for Secp256K1Sha256 {
         sig_params: &SigningParameters,
     ) -> round2::SignatureShare {
         let mut sn = signer_nonces.clone();
-        if group_commitment.y_is_odd() {
+        if Self::Group::y_is_odd(&(group_commitment.to_element() + sig_params.adaptor_point())) {
             sn.negate_nonces();
         }
 
@@ -500,15 +511,11 @@ impl Ciphersuite for Secp256K1Sha256 {
         }
     }
 
-    /// Ensures the nonce has an even Y coordinate.
+    /// Returns the original nonce here
     fn effective_nonce_element(
         R: <Self::Group as Group>::Element,
     ) -> <Self::Group as Group>::Element {
-        if Self::Group::y_is_odd(&R) {
-            -R
-        } else {
-            R
-        }
+        R
     }
 
     /// Ensures the secret key is negated if the public key has odd parity.
