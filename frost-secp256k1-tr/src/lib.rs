@@ -222,7 +222,7 @@ fn tweak<T: AsRef<[u8]>>(
 }
 
 /// Create a BIP341 compliant tweaked public key
-fn tweaked_public_key<T: AsRef<[u8]>>(
+pub fn tweaked_public_key<T: AsRef<[u8]>>(
     public_key: &VerifyingKey,
     merkle_root: Option<T>,
 ) -> <<Secp256K1Sha256 as Ciphersuite>::Group as Group>::Element {
@@ -548,6 +548,89 @@ impl Ciphersuite for Secp256K1Sha256 {
     }
 }
 
+impl Secp256K1Sha256 {
+    /// Compute a signature share, negating if required by BIP340.
+    fn compute_signature_share(
+        signer_nonces: &round1::SigningNonces,
+        group_commitment: <Secp256K1Group as Group>::Element,
+        lambda_i: <<Secp256K1Group as Group>::Field as Field>::Scalar,
+        key_package: &frost::keys::KeyPackage<S>,
+        challenge: Challenge<S>,
+        sig_params: &SigningParameters,
+    ) -> round2::SignatureShare {
+        let mut sn = signer_nonces.clone();
+        if group_commitment.to_affine().y_is_odd().into() {
+            sn.negate_nonces();
+        }
+
+        let mut kp = key_package.clone();
+        let public_key = key_package.verifying_key();
+        let pubkey_is_odd: bool = public_key.y_is_odd();
+        let tweaked_pubkey_is_odd: bool =
+            tweaked_public_key(public_key, sig_params.tapscript_merkle_root.as_ref())
+                .to_affine()
+                .y_is_odd()
+                .into();
+        if pubkey_is_odd != tweaked_pubkey_is_odd {
+            kp.negate_signing_share();
+        }
+
+        let z_share = lambda_i * Secp256K1ScalarField::deserialize(&sn.hiding().serialize()).unwrap()
+        + (lambda_i * kp.signing_share().to_scalar() * challenge.to_scalar());
+
+        round2::SignatureShare::deserialize(Secp256K1ScalarField::serialize(&z_share)).unwrap()
+    }
+
+    /// Aggregate signature shares.
+    fn aggregate(
+        signing_package: &SigningPackage,
+        signature_shares: &BTreeMap<Identifier, round2::SignatureShare>,
+        group_commitment: <Secp256K1Group as Group>::Element,
+        pubkeys: &keys::PublicKeyPackage,
+    ) -> Result<Signature, Error> {
+        // Check if signing_package.signing_commitments and signature_shares have
+        // the same set of identifiers, and if they are all in pubkeys.verifying_shares.
+        if signing_package.signing_commitments().len() != signature_shares.len() {
+            return Err(Error::UnknownIdentifier);
+        }
+        if !signing_package.signing_commitments().keys().all(|id| {
+            #[cfg(feature = "cheater-detection")]
+            return signature_shares.contains_key(id) && pubkeys.verifying_shares().contains_key(id);
+            #[cfg(not(feature = "cheater-detection"))]
+            return signature_shares.contains_key(id);
+        }) {
+            return Err(Error::UnknownIdentifier);
+        }
+
+        let R = Secp256K1Sha256::effective_nonce_element(group_commitment);
+
+        // The aggregation of the signature shares by summing them up, resulting in
+        // a plain Schnorr signature.
+        //
+        // Implements [`aggregate`] from the spec.
+        //
+        // [`aggregate`]: https://www.ietf.org/archive/id/draft-irtf-cfrg-frost-14.html#section-5.3
+        let mut z = <<Secp256K1Group as Group>::Field>::zero();
+
+        for signature_share in signature_shares.values() {
+            z = z + signature_share.share();
+        }
+
+        let signature =
+            Secp256K1Sha256::aggregate_sig_finalize(z, R, &pubkeys.verifying_key(), &signing_package.sig_target());
+
+        // Verify the aggregate signature
+        let verification_result = pubkeys
+            .verifying_key()
+            .verify(signing_package.sig_target().clone(), &signature);
+
+        #[cfg(not(feature = "cheater-detection"))]
+        verification_result?;
+
+        Ok(signature)
+    }
+}
+
 impl RandomizedCiphersuite for Secp256K1Sha256 {
     fn hash_randomizer(m: &[u8]) -> Option<<<Self::Group as Group>::Field as Field>::Scalar> {
         Some(hash_to_scalar(
@@ -720,6 +803,43 @@ pub mod round2 {
     ) -> Result<SignatureShare, Error> {
         frost::round2::sign(signing_package, signer_nonces, key_package)
     }
+
+    /// Performed once by each participant selected for the signing operation.
+    ///
+    /// Receives the message to be signed and a set of signing commitments and a set
+    /// of randomizing commitments to be used in that signing operation, including
+    /// that for this participant.
+    ///
+    /// Assumes the participant has already determined which nonce corresponds with
+    /// the commitment that was assigned by the coordinator in the SigningPackage.
+    pub fn sign_with_group_commitment(
+        signing_package: &SigningPackage,
+        signer_nonces: &round1::SigningNonces,
+        group_commitment: <Secp256K1Group as Group>::Element,
+        key_package: &keys::KeyPackage,
+    ) -> Result<SignatureShare, Error> {
+        // Compute Lagrange coefficient.
+        let lambda_i = frost::derive_interpolating_value(key_package.identifier(), signing_package)?;
+
+        // Compute the per-message challenge.
+        let challenge = <Secp256K1Sha256 as Ciphersuite>::challenge(
+            &group_commitment,
+            &key_package.verifying_key(),
+            &signing_package.sig_target(),
+        );
+    
+        // Compute the Schnorr signature share.
+        let signature_share = Secp256K1Sha256::compute_signature_share(
+            signer_nonces,
+            group_commitment,
+            lambda_i,
+            key_package,
+            challenge,
+            &signing_package.sig_target().sig_params(),
+        );
+    
+        Ok(signature_share)
+    }
 }
 
 /// A Schnorr signature on FROST(secp256k1, SHA-256).
@@ -746,6 +866,30 @@ pub fn aggregate(
     pubkeys: &keys::PublicKeyPackage,
 ) -> Result<Signature, Error> {
     frost::aggregate(signing_package, signature_shares, pubkeys)
+}
+
+/// Verifies each FROST(secp256k1, SHA-256) participant's signature share, and if all are valid,
+/// aggregates the shares into a signature to publish.
+///
+/// Resulting signature is compatible with verification of a plain Schnorr
+/// signature.
+///
+/// This operation is performed by a coordinator that can communicate with all
+/// the signing participants before publishing the final signature. The
+/// coordinator can be one of the participants or a semi-trusted third party
+/// (who is trusted to not perform denial of service attacks, but does not learn
+/// any secret information). Note that because the coordinator is trusted to
+/// report misbehaving parties in order to avoid publishing an invalid
+/// signature, if the coordinator themselves is a signer and misbehaves, they
+/// can avoid that step. However, at worst, this results in a denial of
+/// service attack due to publishing an invalid signature.
+pub fn aggregate_with_group_commitment(
+    signing_package: &SigningPackage,
+    signature_shares: &BTreeMap<Identifier, round2::SignatureShare>,
+    group_commitment: <Secp256K1Group as Group>::Element,
+    pubkeys: &keys::PublicKeyPackage,
+) -> Result<Signature, Error> {
+    Secp256K1Sha256::aggregate(signing_package, signature_shares, group_commitment, pubkeys)
 }
 
 /// A signing key for a Schnorr signature on FROST(secp256k1, SHA-256).
