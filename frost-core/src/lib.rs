@@ -47,7 +47,7 @@ mod signature;
 mod signing_key;
 #[cfg(any(test, feature = "test-impl"))]
 pub mod tests;
-mod traits;
+pub mod traits;
 mod verifying_key;
 
 pub use error::{Error, FieldError, GroupError};
