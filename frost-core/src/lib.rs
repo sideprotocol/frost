@@ -201,6 +201,14 @@ where
     pub fn serialize(&self) -> Vec<u8> {
         SerializableScalar::<C>(self.0).serialize()
     }
+
+    /// Deserializes bytes to [`BindingFactor`]
+    pub fn deserialize(bytes: Vec<u8>) -> Result<Self, Error<C>> {
+        match SerializableScalar::<C>::deserialize(&bytes) {
+            Ok(s) => Ok(BindingFactor::<C>(s.0)),
+            Err(e) => Err(e)
+        }
+    }
 }
 
 impl<C> Debug for BindingFactor<C>
